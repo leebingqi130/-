@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <title>台灣各城市空氣品質(AQI)查詢</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: "Microsoft JhengHei", sans-serif; padding: 20px; max-width: 900px; margin: 0 auto; background-color: #f9f9f9; }
+        .controls { margin-bottom: 20px; background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        select { padding: 8px; font-size: 16px; border-radius: 4px; border: 1px solid #ccc; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; background: white; }
+        th, td { border: 1px solid #eee; padding: 12px; text-align: center; }
+        th { background-color: #333; color: white; }
+        .status-tag { padding: 4px 8px; border-radius: 4px; font-weight: bold; }
+    </style>
+</head>
+<body>
+
+<h2>台灣各城市空氣品質 (AQI) 實時監測</h2>
+
+<div class="controls">
+    <label for="citySelect">選擇縣市：</label>
+    <select id="citySelect">
+        <option value="基隆市">基隆市</option>
+        <option value="臺北市">臺北市</option>
+        <option value="新北市">新北市</option>
+        <option value="桃園市">桃園市</option>
+        <option value="新竹市">新竹市</option>
+        <option value="苗栗縣">苗栗縣</option>
+        <option value="臺中市">臺中市</option>
+        <option value="彰化縣">彰化縣</option>
+        <option value="南投縣">南投縣</option>
+        <option value="雲林縣">雲林縣</option>
+        <option value="嘉義市">嘉義市</option>
+        <option value="嘉義縣">嘉義縣</option>
+        <option value="臺南市">臺南市</option>
+        <option value="高雄市" selected>高雄市</option>
+        <option value="屏東縣">屏東縣</option>
+        <option value="宜蘭縣">宜蘭縣</option>
+        <option value="花蓮縣">花蓮縣</option>
+        <option value="臺東縣">臺東縣</option>
+        <option value="澎湖縣">澎湖縣</option>
+        <option value="金門縣">金門縣</option>
+        <option value="連江縣">連江縣</option>
+    </select>
+    <span id="loadingTxt" style="margin-left:10px; color: #666;">資料載入中...</span>
+</div>
+
+<canvas id="aqiChart" width="600" height="250"></canvas>
+
+<table id="aqiTable">
+    <thead>
+        <tr>
+            <th>測站名稱</th>
+            <th>AQI 指數</th>
+            <th>狀態</th>
+            <th>主要污染物</th>
+            <th>更新時間</th>
+        </tr>
+    </thead>
+    <tbody></tbody>
+</table>
+
+<script>
+let myChart = null;
+let allRecords = [];
+
+// 使用你的金鑰
+const API_KEY = 'a7e8d2ff-9aed-48f3-94f1-0376e5765f30';
+// 為了繞過 CORS 限制，在網址前加上代理伺服器
+const PROXY = 'https://corsproxy.io/?'; 
+const TARGET_URL = `https://data.moenv.gov.tw/api/v2/aqx_p_432?api_key=${API_KEY}&format=JSON`;
+
+async function fetchAQI() {
+    const loadingTxt = document.getElementById('loadingTxt');
+    try {
+        // 嘗試抓取資料
+        const res = await fetch(PROXY + encodeURIComponent(TARGET_URL));
+        const data = await res.json();
+        allRecords = data.records;
+        
+        loadingTxt.innerText = '載入完成';
+        setTimeout(() => loadingTxt.style.display = 'none', 2000);
+
+        renderData(); // 初始渲染一次
+    } catch (err) {
+        console.error(err);
+        loadingTxt.innerText = '抓取失敗，請重新整理頁面';
+        alert('CORS 代理暫時失效或網路問題，請稍後再試');
+    }
+}
+
+function renderData() {
+    const selectedCity = document.getElementById('citySelect').value;
+    const cityData = allRecords.filter(item => item.county === selectedCity);
+
+    // 1. 渲染表格
+    const tbody = document.querySelector('#aqiTable tbody');
+    tbody.innerHTML = '';
+    cityData.forEach(item => {
+        const tr = document.createElement('tr');
+        const aqi = parseInt(item.aqi) || 0;
+        tr.innerHTML = `
+            <td>${item.sitename}</td>
+            <td><strong>${item.aqi || '--'}</strong></td>
+            <td><span class="status-tag" style="background:${getAQIColor(aqi)}; color:${aqi > 50 ? 'black':'white'}">${item.status}</span></td>
+            <td>${item.pollutant || '無'}</td>
+            <td>${item.publishtime}</td>
+        `;
+        tbody.appendChild(tr);
+    });
+
+    // 2. 渲染 Chart.js
+    const ctx = document.getElementById('aqiChart').getContext('2d');
+    if (myChart) myChart.destroy();
+    
+    myChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: cityData.map(item => item.sitename),
+            datasets: [{
+                label: `${selectedCity} AQI 指數`,
+                data: cityData.map(item => parseInt(item.aqi) || 0),
+                backgroundColor: cityData.map(item => getAQIColor(parseInt(item.aqi))),
+                borderRadius: 5
+            }]
+        },
+        options: {
+            responsive: true,
+            scales: { y: { beginAtZero: true, max: 200 } }
+        }
+    });
+}
+
+function getAQIColor(value) {
+    if (value <= 50) return '#00e400'; // 良好
+    if (value <= 100) return '#ffff00'; // 普通
+    if (value <= 150) return '#ff7e00'; // 對敏感族群不健康
+    if (value <= 200) return '#ff0000'; // 不健康
+    return '#99004c'; // 非常不健康
+}
+
+// 監聽選單切換
+document.getElementById('citySelect').addEventListener('change', renderData);
+
+// 執行
+fetchAQI();
+</script>
+</body>
+</html>
